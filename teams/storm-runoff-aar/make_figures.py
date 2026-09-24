@@ -163,6 +163,42 @@ def scatter(ev):
     fig.savefig(OUT / "5_rain_vs_turbidity.png", dpi=150)
 
 
+def mystery_events():
+    """Three spikes with almost no rain in the 12 hours before them: what else moved?"""
+    if not (DATA / "mystery_readings.csv").exists():
+        return
+    rd = pd.read_csv(DATA / "mystery_readings.csv")
+    rd["time"] = local(rd["time"])
+    rr = pd.read_csv(DATA / "mystery_radar_hourly.csv")
+    rr["time"] = local(rr["time"])
+    names = ["Aug 6, 2024", "Jul 28, 2026", "Apr 16, 2024"]
+    fig, axes = plt.subplots(3, 3, figsize=(13, 8), sharex="col")
+    for j, n in enumerate(names):
+        d = rd[rd["event"] == n].set_index("time")
+        r = rr[rr["event"] == n].set_index("time")
+        pk = d["turbidity"].idxmax()
+        lo, hi = pk - pd.Timedelta(hours=36), pk + pd.Timedelta(hours=24)
+        a0, a1, a2 = axes[:, j]
+        a0.bar(r.index, r["lower_mm"], width=0.035, color=ORANGE)
+        a0.set_xlim(lo, hi)
+        a0.set_title(f"{n}, {d['turbidity'].max():.0f} FNU", loc="left", fontsize=11)
+        a1.plot(d.index, d["trumbull_cfs"], color=BLUE, lw=1.4)
+        a2.plot(d.index, d["turbidity"], color=BLUE, lw=1.2)
+        a2.set_yscale("log")
+        for a in axes[:, j]:
+            a.axvline(pk, color=INK2, lw=1, ls=(0, (4, 3)))
+        a2.xaxis.set_major_formatter(mdates.DateFormatter("%-d %Hh", tz=TZ))
+        a2.xaxis.set_major_locator(mdates.HourLocator(byhour=[0, 12], tz=TZ))
+    axes[0, 0].set_ylabel("Lower-basin rain\n(mm per hour, radar)", fontsize=9)
+    axes[1, 0].set_ylabel("Flow at Trumbull\n(cfs)", fontsize=9)
+    axes[2, 0].set_ylabel("Turbidity at Strontia\n(FNU, log)", fontsize=9)
+    fig.suptitle("Three spikes with little rain in the 12 hours before them", x=0.01, ha="left",
+                 fontweight="bold", fontsize=13)
+    footnote(fig, "Dashed line marks the turbidity peak. Local time. " + NOTE)
+    fig.tight_layout(rect=(0, 0.03, 1, 0.96))
+    fig.savefig(OUT / "6_mystery_events.png", dpi=150)
+
+
 def main():
     ts, spikes, ev, hourly = load()
     timeline(ts, spikes)
@@ -170,6 +206,7 @@ def main():
     rain_by_zone(ev)
     hourly_panels(ev, hourly)
     scatter(ev)
+    mystery_events()
     print("wrote", *sorted(p.name for p in OUT.glob("*.png")), sep="\n  ")
 
 
