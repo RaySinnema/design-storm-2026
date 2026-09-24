@@ -1,7 +1,7 @@
 """Add radar rainfall to the turbidity spikes found by find_turbidity_spikes.py.
 
 Usage:
-    python add_radar_rain.py [--top 10] [--hours-before 12]
+    python add_radar_rain.py [--top 10] [--hours-before 72]
 
 For each of the top spikes in spikes.csv, downloads NCEP MRMS 1-hour precipitation images
 from the Iowa State Mesonet archive for the hours leading up to the turbidity peak, and
@@ -10,6 +10,10 @@ measures rain over three areas of the South Platte basin above Strontia Springs:
     gage       the pixel at USGS 06707525
     upper      the basin above the Trumbull gage (06701900), the far upstream part
     lower      the rest of the basin above Strontia, i.e. the land between the two gages
+
+The window is 72 hours by default. 12 hours was too short: on Aug 6, 2024 and Jul 28, 2026
+the wettest hour was 14 to 15 hours before the turbidity peak. Totals over 72 hours can
+include an earlier, unrelated shower, so the lag is measured from the wettest hour.
 
 Writes data/radar_rain_hourly.csv and data/radar_rain_events.csv.
 
@@ -92,7 +96,7 @@ def crop_for(t):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--top", type=int, default=10)
-    p.add_argument("--hours-before", type=int, default=12)
+    p.add_argument("--hours-before", type=int, default=72)
     a = p.parse_args()
 
     events = pd.read_csv(DATA / "spikes.csv").head(a.top)
@@ -130,13 +134,16 @@ def main():
         hourly.append(ev_df)
         got = ev_df["lower_mean_mm"].notna().sum()
         wet = ev_df.loc[ev_df["lower_mean_mm"].idxmax()] if got else None
+        wet_up = ev_df.loc[ev_df["upper_mean_mm"].idxmax()] if got else None
         summary.append({
             "event": i, "peak_time": ev["peak_time"], "peak_ntu": ev["peak_ntu"],
             "hours_with_radar": got,
             "upper_total_mm": ev_df["upper_mean_mm"].sum(),
             "lower_total_mm": ev_df["lower_mean_mm"].sum(),
             "lower_max_pixel_mm_hr": ev_df["lower_max_mm"].max(),
-            "wettest_hour_before_peak": None if wet is None else int(wet["hours_before_peak"]),
+            "lower_wettest_hr_before_peak": None if wet is None else int(wet["hours_before_peak"]),
+            "lower_wettest_hr_mm": None if wet is None else wet["lower_mean_mm"],
+            "upper_wettest_hr_before_peak": None if wet_up is None else int(wet_up["hours_before_peak"]),
             "gauge_day_of_in": ev.get("rain_in_day_of"),
         })
 

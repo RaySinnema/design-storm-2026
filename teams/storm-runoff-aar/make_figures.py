@@ -40,6 +40,9 @@ def local(s):
     return pd.to_datetime(s, utc=True).dt.tz_convert(TZ)
 
 
+WINDOW = 72  # hours of radar before each peak; must match add_radar_rain.py
+
+
 def load():
     ts = pd.read_csv(DATA / "turbidity_15min.csv")
     ts["time"] = local(ts["time"])
@@ -107,8 +110,8 @@ def rain_by_zone(ev):
     x = np.arange(len(ev))
     w = 0.26
     series = [
-        ("Upper basin (above Trumbull), radar, 12 h", ev["upper_total_mm"], BLUE),
-        ("Lower basin (between the gages), radar, 12 h", ev["lower_total_mm"], ORANGE),
+        (f"Upper basin (above Trumbull), radar, {WINDOW} h", ev["upper_total_mm"], BLUE),
+        (f"Lower basin (between the gages), radar, {WINDOW} h", ev["lower_total_mm"], ORANGE),
         ("Strontia Dam rain gauge, whole day", ev["gauge_day_of_in"] * IN_TO_MM, AQUA),
     ]
     for k, (name, vals, color) in enumerate(series):
@@ -120,16 +123,17 @@ def rain_by_zone(ev):
     ax.set_ylabel("Rain (mm)")
     ax.set_title("Rain before each of the ten biggest spikes, by area")
     ax.legend(loc="upper right", fontsize=8.5)
-    footnote(fig, "Gauge inches converted to mm. Radar covers the 12 hours before the peak; the gauge covers a full day. " + NOTE)
+    footnote(fig, f"Gauge inches converted to mm. Radar covers the {WINDOW} hours before the peak; the gauge covers one day. " + NOTE)
     fig.tight_layout(rect=(0, 0.03, 1, 1))
     fig.savefig(OUT / "3_rain_by_area.png", dpi=150)
 
 
 def hourly_panels(ev, hourly):
-    fig, axes = plt.subplots(2, 5, figsize=(13, 5.8), sharex=True, sharey=True)
+    fig, axes = plt.subplots(2, 5, figsize=(14, 5.8), sharex=True, sharey=True)
     for ax, (i, r) in zip(axes.ravel(), ev.iterrows()):
         h = hourly[hourly["event"] == i]
-        ax.bar(-h["hours_before_peak"], h["lower_mean_mm"], width=0.8, color=ORANGE)
+        ax.bar(-h["hours_before_peak"], h["lower_mean_mm"], width=0.9, color=ORANGE)
+        ax.set_xticks([-72, -48, -24, 0])
         ax.set_title(f"{label(r)}\n{r['peak_ntu']:.0f} FNU", fontsize=9, loc="left", fontweight="normal")
         ax.axvline(0, color=INK2, lw=1, ls=(0, (4, 3)))
         ax.grid(axis="x", visible=False)
@@ -144,6 +148,27 @@ def hourly_panels(ev, hourly):
     fig.savefig(OUT / "4_hourly_rain_per_event.png", dpi=150)
 
 
+def lag_chart(ev):
+    """Hours from the wettest lower-basin hour to the turbidity peak."""
+    e = ev.sort_values("peak_ntu")
+    fig, ax = plt.subplots(figsize=(9, 5.4))
+    y = np.arange(len(e))
+    ax.barh(y, e["lower_wettest_hr_before_peak"], color=BLUE, height=0.62)
+    for yi, (_, r) in zip(y, e.iterrows()):
+        weak = r["lower_wettest_hr_mm"] < 1.0
+        note = "  (weak rain, under 1 mm in the wettest hour)" if weak else f"  (wettest hour {r['lower_wettest_hr_mm']:.1f} mm)"
+        ax.text(r["lower_wettest_hr_before_peak"] + 0.3, yi, f"{r['lower_wettest_hr_before_peak']:.0f} h{note}",
+                va="center", fontsize=8.5, color=INK2)
+    ax.set_yticks(y, [f"{label(r)}  {r['peak_ntu']:.0f} FNU" for _, r in e.iterrows()])
+    ax.set_xlim(0, e["lower_wettest_hr_before_peak"].max() * 1.9)
+    ax.grid(axis="y", visible=False)
+    ax.set_xlabel("Hours from the wettest hour of rain to the turbidity peak")
+    ax.set_title("How long the mud took to arrive")
+    footnote(fig, f"Wettest hour of lower-basin radar rain within {WINDOW} hours before the peak. " + NOTE)
+    fig.tight_layout(rect=(0, 0.03, 1, 1))
+    fig.savefig(OUT / "7_lag_rain_to_peak.png", dpi=150)
+
+
 def scatter(ev):
     fig, ax = plt.subplots(figsize=(8, 5.4))
     ax.scatter(ev["lower_total_mm"], ev["peak_ntu"], s=70, color=BLUE, edgecolor=SURFACE, linewidth=2, zorder=3)
@@ -153,7 +178,7 @@ def scatter(ev):
         dx, dy = below.get(label(r), (8, 4))
         ax.annotate(label(r), (r["lower_total_mm"], r["peak_ntu"]), xytext=(dx, dy),
                     textcoords="offset points", fontsize=8.5, color=INK2)
-    ax.set_xlabel("Radar rain over the lower basin in the 12 hours before the peak (mm)")
+    ax.set_xlabel(f"Radar rain over the lower basin in the {WINDOW} hours before the peak (mm)")
     ax.set_ylabel("Peak turbidity (FNU)")
     ax.set_title("More rain does not always mean muddier water")
     ax.text(0.02, 0.97, f"{dry.sum()} of {len(ev)} spikes had under 3 mm of radar rain nearby",
@@ -206,6 +231,7 @@ def main():
     rain_by_zone(ev)
     hourly_panels(ev, hourly)
     scatter(ev)
+    lag_chart(ev)
     mystery_events()
     print("wrote", *sorted(p.name for p in OUT.glob("*.png")), sep="\n  ")
 
